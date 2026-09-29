@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tanzeemo Tool — Savings Group Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Tanzeemo Tool</h1>
+  <p class="tagline">Savings group finance tracker</p>
+</header>
+
+<nav class="tabs" aria-label="Main sections">
+  <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="contributions">Contributions</button>
+  <button class="tab" data-tab="monthly">Monthly</button>
+  <button class="tab" data-tab="loans">Loans</button>
+  <button class="tab" data-tab="profit">Profit</button>
+  <button class="tab" data-tab="settings">Settings</button>
+</nav>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <section id="tab-dashboard" class="tab-panel active">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Savings Pool</div>
+        <div class="stat-value" id="d-total-savings">–</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Loans Outstanding</div>
+        <div class="stat-value warn" id="d-total-loans">–</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Profit</div>
+        <div class="stat-value good" id="d-total-profit">–</div>
+      </div>
+    </div>
+    <h2>Members</h2>
+    <div id="d-members" class="cards-grid"></div>
+  </section>
+
+  <!-- CONTRIBUTIONS -->
+  <section id="tab-contributions" class="tab-panel">
+    <h2>Record Contribution</h2>
+    <form id="c-form" class="form-card">
+      <div class="form-grid">
+        <label>Member
+          <select id="c-member" required></select>
+        </label>
+        <label>Amount
+          <input id="c-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00">
+        </label>
+        <label>Date
+          <input id="c-date" type="date" required>
+        </label>
+        <label>Note (optional)
+          <input id="c-note" type="text" maxlength="120" placeholder="e.g. January saving">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Add Contribution</button>
+    </form>
+
+    <h2>History</h2>
+    <div class="filters">
+      <label>Member
+        <select id="c-filter-member"></select>
+      </label>
+      <label>Month
+        <input id="c-filter-month" type="month">
+      </label>
+      <button id="c-clear-filters" type="button" class="btn">Clear</button>
+    </div>
+    <div id="c-list" class="list"></div>
+  </section>
+
+  <!-- MONTHLY SAVINGS -->
+  <section id="tab-monthly" class="tab-panel">
+    <h2>Monthly Targets</h2>
+    <form id="m-target-form" class="form-card">
+      <div id="m-targets" class="form-grid"></div>
+      <button type="submit" class="btn primary">Save Targets</button>
+    </form>
+
+    <h2>Month View</h2>
+    <div class="filters">
+      <label>Month
+        <input id="m-month" type="month">
+      </label>
+    </div>
+    <div id="m-view" class="list"></div>
+
+    <h2>Month-by-Month Records</h2>
+    <div id="m-history" class="list"></div>
+  </section>
+
+  <!-- LOANS -->
+  <section id="tab-loans" class="tab-panel">
+    <h2>Record New Loan</h2>
+    <form id="l-form" class="form-card">
+      <div class="form-grid">
+        <label>Member
+          <select id="l-member" required></select>
+        </label>
+        <label>Amount
+          <input id="l-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00">
+        </label>
+        <label>Date
+          <input id="l-date" type="date" required>
+        </label>
+        <label>Note (optional)
+          <input id="l-note" type="text" maxlength="120" placeholder="e.g. emergency loan">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Add Loan</button>
+    </form>
+
+    <h2>Outstanding by Member</h2>
+    <div id="l-summary" class="cards-grid"></div>
+
+    <h2>Loans</h2>
+    <div id="l-list" class="list"></div>
+  </section>
+
+  <!-- PROFIT -->
+  <section id="tab-profit" class="tab-panel">
+    <h2>Record Profit</h2>
+    <form id="p-form" class="form-card">
+      <div class="form-grid">
+        <label>Amount
+          <input id="p-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00">
+        </label>
+        <label>Date
+          <input id="p-date" type="date" required>
+        </label>
+        <label>Note (optional)
+          <input id="p-note" type="text" maxlength="120" placeholder="e.g. business profit">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Add Profit</button>
+    </form>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Profit</div>
+        <div class="stat-value good" id="p-total">–</div>
+      </div>
+    </div>
+
+    <h2>Profit Allocation (%)</h2>
+    <form id="p-share-form" class="form-card">
+      <div id="p-shares" class="form-grid"></div>
+      <p id="p-share-msg" class="hint"></p>
+      <button type="submit" class="btn primary">Save Allocation</button>
+    </form>
+
+    <h2>Member Profit Shares</h2>
+    <div id="p-members" class="cards-grid"></div>
+
+    <h2>Profit History</h2>
+    <div id="p-list" class="list"></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" class="tab-panel">
+    <h2>Currency</h2>
+    <form id="s-currency-form" class="form-card">
+      <div class="form-grid">
+        <label>Currency label
+          <input id="s-currency" type="text" maxlength="10" required placeholder="Rs">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Save Currency</button>
+    </form>
+
+    <h2>Member Names</h2>
+    <form id="s-members-form" class="form-card">
+      <div id="s-members" class="form-grid"></div>
+      <button type="submit" class="btn primary">Save Names</button>
+    </form>
+
+    <h2>Backup</h2>
+    <div class="form-card">
+      <p class="hint">Export a JSON backup of all data, or restore from a previously exported file.</p>
+      <div class="btn-row">
+        <button id="s-export" type="button" class="btn">Export data as JSON</button>
+        <label class="btn file-btn">Import JSON
+          <input id="s-import" type="file" accept="application/json,.json" hidden>
+        </label>
+      </div>
+    </div>
+
+    <h2>Danger Zone</h2>
+    <div class="form-card danger">
+      <p class="hint">This permanently deletes all members, contributions, loans, repayments and profit records stored in this browser.</p>
+      <button id="s-reset" type="button" class="btn danger">Reset all data</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>Tanzeemo Tool · data is stored privately in this browser (localStorage)</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
