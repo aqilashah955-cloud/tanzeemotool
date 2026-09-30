@@ -42,6 +42,11 @@
         <div class="stat-label">Total Profit</div>
         <div class="stat-value good" id="d-total-profit">–</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Overdue Installments</div>
+        <div class="stat-value warn" id="d-overdue-count">–</div>
+        <div class="stat-sub" id="d-overdue-amt"></div>
+      </div>
     </div>
     <h2>Latest Meeting</h2>
     <div id="d-latest-meeting" class="form-card"></div>
@@ -219,12 +224,28 @@
         <label>Note (optional)
           <input id="l-note" type="text" maxlength="120" placeholder="e.g. emergency loan">
         </label>
+        <label>Interest / markup % (optional)
+          <input id="l-interest-pct" type="number" min="0" step="0.01" inputmode="decimal" value="0">
+        </label>
+        <label>Interest amount override (optional)
+          <input id="l-interest-amt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+        </label>
+        <label>Number of installments (optional)
+          <input id="l-installments" type="number" min="1" step="1" inputmode="numeric" placeholder="1">
+        </label>
+        <label>First due date (optional)
+          <input id="l-first-due" type="date">
+        </label>
       </div>
+      <p class="hint">Leave interest blank for none. If both % and override are set, the override is used. Installments default to 1 (no plan); first due date defaults to one month after the loan date.</p>
       <button type="submit" class="btn primary">Add Loan</button>
     </form>
 
     <h2>Outstanding by Member</h2>
     <div id="l-summary" class="cards-grid"></div>
+
+    <h2>Overdue Installments</h2>
+    <div id="l-overdue" class="list"></div>
 
     <h2>Loans</h2>
     <div id="l-list" class="list"></div>
@@ -303,7 +324,7 @@
 
     <h2>Danger Zone</h2>
     <div class="form-card danger">
-      <p class="hint">This permanently deletes all members, contributions, loans, repayments, profit records, meetings and tours stored in this browser.</p>
+      <p class="hint">This permanently deletes all members, contributions, loans, repayments, installment plans, profit records, meetings and tours stored in this browser.</p>
       <button id="s-reset" type="button" class="btn danger">Reset all data</button>
     </div>
   </section>

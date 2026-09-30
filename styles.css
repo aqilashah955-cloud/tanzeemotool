@@ -184,6 +184,11 @@ input:focus, select:focus {
 .loan-card .balance { font-weight: 700; }
 .loan-card .balance.owed { color: var(--warn); }
 .loan-card .balance.clear { color: var(--good); }
+.sched-title { font-weight: 700; margin: 0.6rem 0 0.35rem; font-size: 0.95rem; }
+.status-overdue { color: var(--danger); font-weight: 700; }
+
+/* Dashboard stat sub-line */
+.stat-sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.15rem; }
 .repay-form { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; align-items: end; }
 .repay-form label { min-width: 120px; }
 

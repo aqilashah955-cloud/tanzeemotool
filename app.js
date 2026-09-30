@@ -47,8 +47,9 @@ function defaultData() {
     members: members,
     contributions: [],   // {id, memberId, amount, date, note}
     monthlyTargets: {},  // memberId -> amount
-    loans: [],           // {id, memberId, amount, date, note}
+    loans: [],           // {id, memberId, amount, date, note, interestPct, interestAmount, installmentCount}
     repayments: [],      // {id, loanId, amount, date, note}
+    installments: [],    // {id, loanId, n, dueDate, amount} — auto-generated plan per loan
     profits: [],         // {id, amount, date, note}
     profitShares: shares,// memberId -> percent
     meetings: [],        // {id, date, hostMemberId, attendeeIds: [], agenda, summary}
@@ -74,6 +75,7 @@ function normalize() {
   data.monthlyTargets = data.monthlyTargets || {};
   data.loans = data.loans || [];
   data.repayments = data.repayments || [];
+  data.installments = data.installments || [];
   data.profits = data.profits || [];
   data.profitShares = data.profitShares || {};
   data.meetings = data.meetings || [];
@@ -81,6 +83,19 @@ function normalize() {
   data.tourPayments = data.tourPayments || [];
   data.tourExpenses = data.tourExpenses || [];
   data.settings = data.settings || { currency: 'Rs' };
+  // normalize loan records (forward-compatible with older backups)
+  data.loans.forEach(function (l) {
+    if (typeof l.interestPct !== 'number') l.interestPct = 0;
+    if (typeof l.interestAmount !== 'number') l.interestAmount = 0;
+    if (typeof l.installmentCount !== 'number' || l.installmentCount < 1) l.installmentCount = 1;
+  });
+  // normalize installment records
+  data.installments.forEach(function (it) {
+    it.loanId = it.loanId || '';
+    it.n = Number(it.n) || 0;
+    it.dueDate = it.dueDate || '';
+    it.amount = Number(it.amount) || 0;
+  });
   // ensure every member has a profit share entry and a phone field
   data.members.forEach(function (m) {
     if (typeof data.profitShares[m.id] !== 'number') data.profitShares[m.id] = 0;
@@ -145,8 +160,15 @@ function loanRepaid(loanId) {
   return data.repayments.filter(function (r) { return r.loanId === loanId; })
     .reduce(function (s, r) { return s + Number(r.amount); }, 0);
 }
+function loanInterest(l) {
+  return Number(l.interestAmount) || 0;
+}
+function loanTotalOwed(l) {
+  return (Number(l.amount) || 0) + loanInterest(l);
+}
 function loanOutstanding(loan) {
-  return Math.max(0, Number(loan.amount) - loanRepaid(loan.id));
+  var bal = loanTotalOwed(loan) - loanRepaid(loan.id);
+  return Math.max(0, Math.round(bal * 100) / 100);
 }
 function memberLoanBalance(id) {
   return data.loans.filter(function (l) { return l.memberId === id; })
@@ -154,6 +176,63 @@ function memberLoanBalance(id) {
 }
 function totalOutstanding() {
   return data.loans.reduce(function (s, l) { return s + loanOutstanding(l); }, 0);
+}
+
+/* ---------- installments ---------- */
+function addMonths(iso, n) {
+  var p = String(iso).split('-');
+  var y = Number(p[0]) || 1970, m = (Number(p[1]) || 1) - 1 + n, d = Number(p[2]) || 1;
+  y += Math.floor(m / 12);
+  m = ((m % 12) + 12) % 12;
+  var lastDay = new Date(y, m + 1, 0).getDate();
+  return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(Math.min(d, lastDay)).padStart(2, '0');
+}
+function installmentsFor(loanId) {
+  return data.installments.filter(function (i) { return i.loanId === loanId; })
+    .sort(function (a, b) { return a.n - b.n; });
+}
+// Build an installment plan for a loan. Amounts are computed in cents so the
+// installments always sum to principal + interest exactly (last one adjusted).
+function buildInstallments(loan, firstDue) {
+  var k = Math.max(1, Math.round(Number(loan.installmentCount) || 1));
+  if (k <= 1) return [];
+  var totalCents = Math.round(loanTotalOwed(loan) * 100);
+  var base = Math.floor(totalCents / k);
+  var out = [];
+  for (var i = 1; i <= k; i++) {
+    var cents = (i === k) ? (totalCents - base * (k - 1)) : base;
+    out.push({ id: uid(), loanId: loan.id, n: i, dueDate: addMonths(firstDue, i - 1), amount: cents / 100 });
+  }
+  return out;
+}
+// Allocate a loan's repayments across its installments in order (FIFO).
+// Returns [{inst, paid, unpaid, status}]
+function installmentProgress(loanId) {
+  var insts = installmentsFor(loanId);
+  if (insts.length <= 1) return [];
+  var remaining = loanRepaid(loanId);
+  var today = todayStr();
+  return insts.map(function (it) {
+    var paid = Math.min(it.amount, Math.max(0, remaining));
+    remaining = Math.max(0, remaining - paid);
+    var unpaid = Math.round((it.amount - paid) * 100) / 100;
+    var status, cls;
+    if (unpaid <= 0.005) { status = 'Paid'; cls = 'status-paid'; }
+    else if (paid > 0.005) { status = 'Partially paid'; cls = 'status-partial'; }
+    else if (it.dueDate < today) { status = 'Overdue'; cls = 'status-overdue'; }
+    else { status = 'Pending'; cls = 'status-unpaid'; }
+    return { inst: it, paid: paid, unpaid: unpaid, status: status, cls: cls };
+  });
+}
+function overdueInstallments() {
+  var out = [];
+  data.loans.forEach(function (l) {
+    installmentProgress(l.id).forEach(function (pr) {
+      if (pr.status === 'Overdue') out.push({ loan: l, inst: pr.inst, unpaid: pr.unpaid });
+    });
+  });
+  out.sort(function (a, b) { return a.inst.dueDate.localeCompare(b.inst.dueDate); });
+  return out;
 }
 function totalProfit() {
   return data.profits.reduce(function (s, p) { return s + Number(p.amount); }, 0);
@@ -253,6 +332,10 @@ function renderDashboard() {
   $('d-total-savings').textContent = fmt(totalContributions());
   $('d-total-loans').textContent = fmt(totalOutstanding());
   $('d-total-profit').textContent = fmt(totalProfit());
+  var od = overdueInstallments();
+  var odTotal = od.reduce(function (s, o) { return s + o.unpaid; }, 0);
+  $('d-overdue-count').textContent = od.length;
+  $('d-overdue-amt').textContent = od.length ? fmt(odTotal) + ' overdue' : 'All clear ✓';
   renderLatestMeeting();
   renderLatestTour();
   $('d-members').innerHTML = data.members.map(function (m) {
@@ -305,6 +388,7 @@ function deleteMember(id) {
   data.loans.forEach(function (l) { if (l.memberId === id) loanIds[l.id] = true; });
   data.loans = data.loans.filter(function (l) { return l.memberId !== id; });
   data.repayments = data.repayments.filter(function (r) { return !loanIds[r.loanId]; });
+  data.installments = data.installments.filter(function (i) { return !loanIds[i.loanId]; });
   // cascade: targets, profit shares
   delete data.monthlyTargets[id];
   delete data.profitShares[id];
@@ -814,6 +898,31 @@ function initTours() {
 }
 
 /* ---------- loans ---------- */
+function loanScheduleHtml(l) {
+  var prog = installmentProgress(l.id);
+  if (!prog.length) return '';
+  var rows = prog.map(function (pr) {
+    return '<tr><td>' + pr.inst.n + '</td><td>' + fmtDate(pr.inst.dueDate) + '</td>' +
+      '<td>' + fmt(pr.inst.amount) + '</td><td>' + fmt(pr.paid) + '</td>' +
+      '<td class="' + pr.cls + '">' + pr.status + '</td></tr>';
+  }).join('');
+  return '<div class="sched-title">Installment plan (' + prog.length + ')</div>' +
+    '<div class="table-wrap"><table class="members-table"><thead><tr>' +
+    '<th>#</th><th>Due date</th><th>Amount</th><th>Paid</th><th>Status</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function renderOverdue() {
+  var od = overdueInstallments();
+  $('l-overdue').innerHTML = od.map(function (o) {
+    return '<div class="list-item"><div class="top">' +
+      '<div><strong>' + esc(memberName(o.loan.memberId)) + '</strong>' +
+      '<div class="meta">Loan of ' + fmtDate(o.loan.date) + ' — Installment ' + o.inst.n +
+      ' · due ' + fmtDate(o.inst.dueDate) + '</div></div>' +
+      '<div class="amount" style="color:var(--danger)">' + fmt(o.unpaid) + '</div></div></div>';
+  }).join('') || '<p class="empty">No overdue installments. ✓</p>';
+}
+
 function renderLoans() {
   fillMemberSelect($('l-member'), false);
 
@@ -823,10 +932,14 @@ function renderLoans() {
       '</dl></div>';
   }).join('') || '<p class="empty">No members yet.</p>';
 
+  renderOverdue();
+
   var loans = data.loans.slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
   $('l-list').innerHTML = loans.map(function (l) {
     var repaid = loanRepaid(l.id);
     var bal = loanOutstanding(l);
+    var total = loanTotalOwed(l);
+    var interest = loanInterest(l);
     var cls = bal > 0 ? 'owed' : 'clear';
     var reps = data.repayments.filter(function (r) { return r.loanId === l.id; })
       .sort(function (a, b) { return b.date.localeCompare(a.date); });
@@ -838,10 +951,15 @@ function renderLoans() {
     return '<div class="list-item loan-card"><div class="top">' +
       '<div><strong>' + esc(memberName(l.memberId)) + '</strong>' +
       '<div class="meta">Loaned on ' + fmtDate(l.date) + (l.note ? ' — ' + esc(l.note) : '') + '</div></div>' +
-      '<div class="amount">' + fmt(l.amount) + '</div></div>' +
+      '<div class="amount">' + fmt(total) + '</div></div>' +
+      '<div class="numbers" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.25rem;font-size:0.9rem;margin-top:0.3rem;">' +
+      '<span>Principal: <strong>' + fmt(l.amount) + '</strong></span>' +
+      '<span>Interest: <strong>' + fmt(interest) + '</strong></span>' +
+      '<span>Total owed: <strong>' + fmt(total) + '</strong></span></div>' +
       '<div class="numbers" style="display:flex;justify-content:space-between;font-size:0.9rem;margin-top:0.3rem;">' +
       '<span>Repaid: <strong>' + fmt(repaid) + '</strong></span>' +
       '<span>Outstanding: <strong class="balance ' + cls + '">' + fmt(bal) + '</strong></span></div>' +
+      loanScheduleHtml(l) +
       repHtml +
       (bal > 0 ?
         '<form class="repay-form" data-repay-for="' + l.id + '">' +
@@ -875,12 +993,27 @@ function initLoans() {
     var amount = parseFloat($('l-amount').value);
     if (!(amount > 0)) { alert('Please enter a valid amount.'); return; }
     if (!$('l-member').value || !$('l-date').value) { alert('Please choose a member and date.'); return; }
-    data.loans.push({
+    // interest: explicit Rs override wins, otherwise computed from %
+    var pct = parseFloat($('l-interest-pct').value) || 0;
+    var overrideRaw = $('l-interest-amt').value.trim();
+    var interestAmount = overrideRaw !== '' ? (parseFloat(overrideRaw) || 0) : Math.round(amount * pct / 100);
+    // installment plan (optional)
+    var kRaw = parseInt($('l-installments').value, 10);
+    var k = (kRaw > 1) ? kRaw : 1;
+    var firstDue = $('l-first-due').value || addMonths($('l-date').value, 1);
+    var loan = {
       id: uid(), memberId: $('l-member').value, amount: amount,
-      date: $('l-date').value, note: $('l-note').value.trim()
-    });
+      date: $('l-date').value, note: $('l-note').value.trim(),
+      interestPct: pct, interestAmount: interestAmount, installmentCount: k
+    };
+    data.loans.push(loan);
+    if (k > 1) {
+      buildInstallments(loan, firstDue).forEach(function (it) { data.installments.push(it); });
+    }
     save();
     $('l-amount').value = ''; $('l-note').value = '';
+    $('l-interest-pct').value = '0'; $('l-interest-amt').value = '';
+    $('l-installments').value = ''; $('l-first-due').value = '';
     renderAll();
   });
 }
@@ -1036,13 +1169,14 @@ function initDeletes() {
     var id = btn.getAttribute('data-id');
     if (type === 'member') { deleteMember(id); return; }
     if (type === 'tour') { deleteTour(id); return; }
-    var label = { contribution: 'this contribution', loan: 'this loan and its repayments', repayment: 'this repayment', profit: 'this profit entry', meeting: 'this meeting', tourExpense: 'this expense' }[type] || 'this record';
+    var label = { contribution: 'this contribution', loan: 'this loan, its repayments and installment plan', repayment: 'this repayment', profit: 'this profit entry', meeting: 'this meeting', tourExpense: 'this expense' }[type] || 'this record';
     if (!confirm('Delete ' + label + '?')) return;
     if (type === 'contribution') data.contributions = data.contributions.filter(function (c) { return c.id !== id; });
     else if (type === 'tourExpense') data.tourExpenses = data.tourExpenses.filter(function (e) { return e.id !== id; });
     else if (type === 'loan') {
       data.loans = data.loans.filter(function (l) { return l.id !== id; });
       data.repayments = data.repayments.filter(function (r) { return r.loanId !== id; });
+      data.installments = data.installments.filter(function (i) { return i.loanId !== id; });
     }
     else if (type === 'repayment') data.repayments = data.repayments.filter(function (r) { return r.id !== id; });
     else if (type === 'profit') data.profits = data.profits.filter(function (p) { return p.id !== id; });
