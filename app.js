@@ -52,6 +52,9 @@ function defaultData() {
     profits: [],         // {id, amount, date, note}
     profitShares: shares,// memberId -> percent
     meetings: [],        // {id, date, hostMemberId, attendeeIds: [], agenda, summary}
+    tours: [],           // {id, name, destination, startDate, endDate, costPerMember, notes}
+    tourPayments: [],    // {id, tourId, memberId, amount, date, note}
+    tourExpenses: [],    // {id, tourId, amount, date, note}
     settings: { currency: 'Rs' }
   };
 }
@@ -74,6 +77,9 @@ function normalize() {
   data.profits = data.profits || [];
   data.profitShares = data.profitShares || {};
   data.meetings = data.meetings || [];
+  data.tours = data.tours || [];
+  data.tourPayments = data.tourPayments || [];
+  data.tourExpenses = data.tourExpenses || [];
   data.settings = data.settings || { currency: 'Rs' };
   // ensure every member has a profit share entry and a phone field
   data.members.forEach(function (m) {
@@ -87,6 +93,28 @@ function normalize() {
     mt.attendeeIds = mt.attendeeIds || [];
     mt.agenda = mt.agenda || '';
     mt.summary = mt.summary || '';
+  });
+  // normalize tour records (forward-compatible with older backups)
+  data.tours.forEach(function (t) {
+    t.name = t.name || '';
+    t.destination = t.destination || '';
+    t.startDate = t.startDate || '';
+    t.endDate = t.endDate || '';
+    t.costPerMember = Number(t.costPerMember) || 0;
+    t.notes = t.notes || '';
+  });
+  data.tourPayments.forEach(function (p) {
+    p.tourId = p.tourId || '';
+    p.memberId = p.memberId || '';
+    p.amount = Number(p.amount) || 0;
+    p.date = p.date || '';
+    p.note = p.note || '';
+  });
+  data.tourExpenses.forEach(function (e) {
+    e.tourId = e.tourId || '';
+    e.amount = Number(e.amount) || 0;
+    e.date = e.date || '';
+    e.note = e.note || '';
   });
 }
 function save() {
@@ -138,6 +166,43 @@ function memberMonthSaved(id, ym) {
     .filter(function (c) { return c.memberId === id && c.date.slice(0, 7) === ym; })
     .reduce(function (s, c) { return s + Number(c.amount); }, 0);
 }
+function sortedTours() {
+  return data.tours.slice().sort(function (a, b) {
+    return (b.startDate || '').localeCompare(a.startDate || '');
+  });
+}
+function latestTour() { return sortedTours()[0] || null; }
+function tourById(id) {
+  var t = null;
+  data.tours.forEach(function (x) { if (x.id === id) t = x; });
+  return t;
+}
+function tourCollected(tourId) {
+  return data.tourPayments.filter(function (p) { return p.tourId === tourId; })
+    .reduce(function (s, p) { return s + Number(p.amount); }, 0);
+}
+function tourSpent(tourId) {
+  return data.tourExpenses.filter(function (e) { return e.tourId === tourId; })
+    .reduce(function (s, e) { return s + Number(e.amount); }, 0);
+}
+function memberTourPaid(tourId, memberId) {
+  return data.tourPayments.filter(function (p) { return p.tourId === tourId && p.memberId === memberId; })
+    .reduce(function (s, p) { return s + Number(p.amount); }, 0);
+}
+function tourMembersPaidFull(tour) {
+  var cost = Number(tour.costPerMember) || 0;
+  if (cost <= 0) return 0;
+  return data.members.filter(function (m) { return memberTourPaid(tour.id, m.id) >= cost; }).length;
+}
+function tourExpectedTotal(tour) {
+  return (Number(tour.costPerMember) || 0) * data.members.length;
+}
+function tourDatesLabel(t) {
+  if (t.startDate && t.endDate) return fmtDate(t.startDate) + ' → ' + fmtDate(t.endDate);
+  if (t.startDate) return 'From ' + fmtDate(t.startDate);
+  if (t.endDate) return 'Until ' + fmtDate(t.endDate);
+  return 'Dates not set';
+}
 
 /* ---------- tabs ---------- */
 function initTabs() {
@@ -169,11 +234,27 @@ function renderLatestMeeting() {
            : '<p class="empty">No summary written yet.</p>') +
     '<p class="hint" style="margin-bottom:0">View the full summary in the Meetings tab.</p>';
 }
+function renderLatestTour() {
+  var box = $('d-latest-tour');
+  var t = latestTour();
+  if (!t) { box.innerHTML = '<p class="empty">No tour planned yet.</p>'; return; }
+  var collected = tourCollected(t.id);
+  var expected = tourExpectedTotal(t);
+  var pct = expected > 0 ? Math.min(100, Math.round(collected / expected * 100)) : 0;
+  box.innerHTML = '<h3>' + esc(t.name) + '</h3>' +
+    '<p class="hint" style="margin:0.25rem 0">' + esc(t.destination) + ' · ' + tourDatesLabel(t) + '</p>' +
+    '<div class="progress"><div class="' + (pct >= 100 ? 'full' : '') + '" style="width:' + pct + '%"></div></div>' +
+    '<div class="numbers" style="display:flex;justify-content:space-between;font-size:0.9rem;margin-top:0.25rem;">' +
+    '<span>Collected: <strong>' + fmt(collected) + '</strong></span>' +
+    '<span>Expected: <strong>' + fmt(expected) + '</strong></span></div>' +
+    '<p class="hint" style="margin-bottom:0">See the Tours tab for details.</p>';
+}
 function renderDashboard() {
   $('d-total-savings').textContent = fmt(totalContributions());
   $('d-total-loans').textContent = fmt(totalOutstanding());
   $('d-total-profit').textContent = fmt(totalProfit());
   renderLatestMeeting();
+  renderLatestTour();
   $('d-members').innerHTML = data.members.map(function (m) {
     return '<div class="member-card"><h3>' + esc(m.name) + '</h3><dl>' +
       '<div class="row"><dt>Total contributed</dt><dd>' + fmt(memberContributed(m.id)) + '</dd></div>' +
@@ -213,10 +294,12 @@ function deleteMember(id) {
   var m = null;
   data.members.forEach(function (x) { if (x.id === id) m = x; });
   var name = m ? m.name : 'this member';
-  if (!confirm('Delete member "' + name + '"? This will also remove ALL of their contributions, loans, repayments, targets and profit share.')) return;
+  if (!confirm('Delete member "' + name + '"? This will also remove ALL of their contributions, loans, repayments, targets, tour payments and profit share.')) return;
   if (!confirm('Are you really sure? "' + name + '" and all their records will be permanently deleted.')) return;
   // cascade: contributions
   data.contributions = data.contributions.filter(function (c) { return c.memberId !== id; });
+  // cascade: tour payments
+  data.tourPayments = data.tourPayments.filter(function (p) { return p.memberId !== id; });
   // cascade: loans + their repayments
   var loanIds = {};
   data.loans.forEach(function (l) { if (l.memberId === id) loanIds[l.id] = true; });
@@ -555,6 +638,181 @@ function initMeetings() {
   });
 }
 
+/* ---------- tours ---------- */
+var selectedTourId = null;
+var tPaySearch = '';
+
+function renderTourMembers() {
+  var t = selectedTourId ? tourById(selectedTourId) : null;
+  var box = $('t-pay-status');
+  if (!box || !t) return;
+  var cost = Number(t.costPerMember) || 0;
+  var q = tPaySearch.trim().toLowerCase();
+  var list = data.members.filter(function (m) { return !q || m.name.toLowerCase().indexOf(q) !== -1; });
+  box.innerHTML = list.length ?
+    '<div class="table-wrap"><table class="members-table"><thead><tr>' +
+    '<th>Name</th><th>Paid</th><th>Remaining</th><th>Status</th>' +
+    '</tr></thead><tbody>' + list.map(function (m) {
+      var paid = memberTourPaid(t.id, m.id);
+      var rem = Math.max(0, cost - paid);
+      var st, cls;
+      if (cost > 0 && paid >= cost) { st = 'Paid in full'; cls = 'status-paid'; }
+      else if (paid > 0) { st = 'Partial'; cls = 'status-partial'; }
+      else { st = 'Not paid'; cls = 'status-unpaid'; }
+      return '<tr><td><strong>' + esc(m.name) + '</strong></td>' +
+        '<td>' + fmt(paid) + '</td><td>' + fmt(rem) + '</td>' +
+        '<td class="' + cls + '">' + st + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<p class="empty">No members found.</p>';
+}
+
+function renderTours() {
+  var tours = sortedTours();
+  if (!selectedTourId || !tourById(selectedTourId)) {
+    selectedTourId = tours.length ? tours[0].id : null;
+  }
+  var sel = $('t-select');
+  sel.innerHTML = tours.map(function (t) {
+    return '<option value="' + t.id + '"' + (t.id === selectedTourId ? ' selected' : '') + '>' +
+      esc(t.name) + (t.destination ? ' — ' + esc(t.destination) : '') + '</option>';
+  }).join('');
+
+  var box = $('t-detail');
+  var t = selectedTourId ? tourById(selectedTourId) : null;
+  if (!t) { box.innerHTML = '<p class="empty">No tours planned yet.</p>'; return; }
+
+  var collected = tourCollected(t.id);
+  var spent = tourSpent(t.id);
+  var balance = collected - spent;
+  var full = tourMembersPaidFull(t);
+
+  var html = '';
+  // overview stat cards
+  html += '<div class="stats-row">' +
+    '<div class="stat-card"><div class="stat-label">Total Collected</div><div class="stat-value good">' + fmt(collected) + '</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Total Spent</div><div class="stat-value warn">' + fmt(spent) + '</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Balance</div><div class="stat-value">' + fmt(balance) + '</div></div>' +
+    '<div class="stat-card"><div class="stat-label">Members Paid</div><div class="stat-value">' + full + ' of ' + data.members.length + '</div></div>' +
+    '</div>';
+  // tour info card
+  html += '<div class="list-item" style="margin-top:0.75rem"><div class="top">' +
+    '<div><strong>' + esc(t.name) + '</strong>' +
+    '<div class="meta">' + esc(t.destination) + ' · ' + tourDatesLabel(t) + ' · Cost per member: ' + fmt(t.costPerMember) + '</div></div>' +
+    '</div>' +
+    (t.notes ? '<div class="note">' + esc(t.notes) + '</div>' : '') +
+    '<div class="actions"><button class="btn small danger" data-del="tour" data-id="' + t.id + '">Delete Tour</button></div></div>';
+  // record payment form
+  html += '<h2>Record Tour Payment</h2>' +
+    '<form id="t-pay-form" class="form-card"><div class="form-grid">' +
+    '<label>Member<select id="t-pay-member" required>' +
+    data.members.map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('') +
+    '</select></label>' +
+    '<label>Amount<input id="t-pay-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label>' +
+    '<label>Date<input id="t-pay-date" type="date" required value="' + todayStr() + '"></label>' +
+    '<label>Note (optional)<input id="t-pay-note" type="text" maxlength="120" placeholder="e.g. advance"></label>' +
+    '</div><button type="submit" class="btn primary">Add Payment</button></form>';
+  // per-member payment status
+  html += '<h2>Member Payments</h2>' +
+    '<div class="filters"><label>Search<input id="t-pay-search" type="search" placeholder="Search members…" value="' + esc(tPaySearch) + '"></label></div>' +
+    '<div id="t-pay-status"></div>';
+  // record expense form
+  html += '<h2>Record Tour Expense</h2>' +
+    '<form id="t-exp-form" class="form-card"><div class="form-grid">' +
+    '<label>Amount<input id="t-exp-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label>' +
+    '<label>Date<input id="t-exp-date" type="date" required value="' + todayStr() + '"></label>' +
+    '<label>Note (optional)<input id="t-exp-note" type="text" maxlength="120" placeholder="e.g. transport, hotel, food"></label>' +
+    '</div><button type="submit" class="btn primary">Add Expense</button></form>';
+  // expense history
+  var exps = data.tourExpenses.filter(function (e) { return e.tourId === t.id; })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); });
+  html += '<h2>Expense History</h2><div class="list">' +
+    (exps.map(function (e) {
+      return '<div class="list-item"><div class="top">' +
+        '<div><div class="meta">' + fmtDate(e.date) + '</div></div>' +
+        '<div class="amount">' + fmt(e.amount) + '</div></div>' +
+        (e.note ? '<div class="note">' + esc(e.note) + '</div>' : '') +
+        '<div class="actions"><button class="btn small" data-del="tourExpense" data-id="' + e.id + '">Delete</button></div></div>';
+    }).join('') || '<p class="empty">No expenses recorded yet.</p>') + '</div>';
+
+  box.innerHTML = html;
+  renderTourMembers();
+}
+
+function deleteTour(id) {
+  var t = tourById(id);
+  var name = t ? t.name : 'this tour';
+  if (!confirm('Delete tour "' + name + '"? This will also remove ALL of its payments and expenses.')) return;
+  if (!confirm('Are you really sure? "' + name + '" and all its records will be permanently deleted.')) return;
+  data.tours = data.tours.filter(function (x) { return x.id !== id; });
+  data.tourPayments = data.tourPayments.filter(function (p) { return p.tourId !== id; });
+  data.tourExpenses = data.tourExpenses.filter(function (e) { return e.tourId !== id; });
+  if (selectedTourId === id) selectedTourId = null;
+  save(); renderAll();
+}
+
+function initTours() {
+  $('t-select').addEventListener('change', function () {
+    selectedTourId = this.value || null;
+    tPaySearch = '';
+    renderTours();
+  });
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f || !f.id) return;
+    if (f.id === 't-form') {
+      e.preventDefault();
+      var cost = parseFloat($('t-cost').value);
+      if (!(cost > 0)) { alert('Please enter a valid cost per member.'); return; }
+      if (!$('t-name').value.trim() || !$('t-dest').value.trim()) { alert('Please enter a tour name and destination.'); return; }
+      var t = {
+        id: uid(),
+        name: $('t-name').value.trim(),
+        destination: $('t-dest').value.trim(),
+        startDate: $('t-start').value || '',
+        endDate: $('t-end').value || '',
+        costPerMember: cost,
+        notes: $('t-notes').value.trim()
+      };
+      data.tours.push(t);
+      selectedTourId = t.id;
+      save();
+      $('t-name').value = ''; $('t-dest').value = ''; $('t-start').value = '';
+      $('t-end').value = ''; $('t-cost').value = ''; $('t-notes').value = '';
+      renderAll();
+    } else if (f.id === 't-pay-form') {
+      e.preventDefault();
+      var tour = selectedTourId ? tourById(selectedTourId) : null;
+      if (!tour) { alert('Please select a tour first.'); return; }
+      var amt = parseFloat($('t-pay-amount').value);
+      if (!(amt > 0)) { alert('Please enter a valid amount.'); return; }
+      if (!$('t-pay-member').value || !$('t-pay-date').value) { alert('Please choose a member and date.'); return; }
+      data.tourPayments.push({
+        id: uid(), tourId: tour.id, memberId: $('t-pay-member').value,
+        amount: amt, date: $('t-pay-date').value, note: $('t-pay-note').value.trim()
+      });
+      save(); renderAll();
+    } else if (f.id === 't-exp-form') {
+      e.preventDefault();
+      var tour2 = selectedTourId ? tourById(selectedTourId) : null;
+      if (!tour2) { alert('Please select a tour first.'); return; }
+      var amt2 = parseFloat($('t-exp-amount').value);
+      if (!(amt2 > 0)) { alert('Please enter a valid amount.'); return; }
+      if (!$('t-exp-date').value) { alert('Please choose a date.'); return; }
+      data.tourExpenses.push({
+        id: uid(), tourId: tour2.id, amount: amt2,
+        date: $('t-exp-date').value, note: $('t-exp-note').value.trim()
+      });
+      save(); renderAll();
+    }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 't-pay-search') {
+      tPaySearch = e.target.value;
+      renderTourMembers();
+    }
+  });
+}
+
 /* ---------- loans ---------- */
 function renderLoans() {
   fillMemberSelect($('l-member'), false);
@@ -777,9 +1035,11 @@ function initDeletes() {
     var type = btn.getAttribute('data-del');
     var id = btn.getAttribute('data-id');
     if (type === 'member') { deleteMember(id); return; }
-    var label = { contribution: 'this contribution', loan: 'this loan and its repayments', repayment: 'this repayment', profit: 'this profit entry', meeting: 'this meeting' }[type] || 'this record';
+    if (type === 'tour') { deleteTour(id); return; }
+    var label = { contribution: 'this contribution', loan: 'this loan and its repayments', repayment: 'this repayment', profit: 'this profit entry', meeting: 'this meeting', tourExpense: 'this expense' }[type] || 'this record';
     if (!confirm('Delete ' + label + '?')) return;
     if (type === 'contribution') data.contributions = data.contributions.filter(function (c) { return c.id !== id; });
+    else if (type === 'tourExpense') data.tourExpenses = data.tourExpenses.filter(function (e) { return e.id !== id; });
     else if (type === 'loan') {
       data.loans = data.loans.filter(function (l) { return l.id !== id; });
       data.repayments = data.repayments.filter(function (r) { return r.loanId !== id; });
@@ -801,6 +1061,7 @@ function renderAll() {
   renderContributions();
   renderMonthly();
   renderMeetings();
+  renderTours();
   renderLoans();
   renderProfit();
   renderSettings();
@@ -812,6 +1073,7 @@ initMembers();
 initContributions();
 initMonthly();
 initMeetings();
+initTours();
 initLoans();
 initProfit();
 initSettings();

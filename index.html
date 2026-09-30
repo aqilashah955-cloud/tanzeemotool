@@ -19,6 +19,7 @@
   <button class="tab" data-tab="contributions">Contributions</button>
   <button class="tab" data-tab="monthly">Monthly</button>
   <button class="tab" data-tab="meetings">Meetings</button>
+  <button class="tab" data-tab="tours">Tours</button>
   <button class="tab" data-tab="loans">Loans</button>
   <button class="tab" data-tab="profit">Profit</button>
   <button class="tab" data-tab="settings">Settings</button>
@@ -44,6 +45,8 @@
     </div>
     <h2>Latest Meeting</h2>
     <div id="d-latest-meeting" class="form-card"></div>
+    <h2>Annual Tour</h2>
+    <div id="d-latest-tour" class="form-card"></div>
     <h2>Members</h2>
     <div id="d-members" class="cards-grid"></div>
   </section>
@@ -163,6 +166,42 @@
     <div id="mt-history" class="list"></div>
   </section>
 
+  <!-- TOURS -->
+  <section id="tab-tours" class="tab-panel">
+    <h2>Plan New Tour</h2>
+    <form id="t-form" class="form-card">
+      <div class="form-grid">
+        <label>Tour name
+          <input id="t-name" type="text" maxlength="60" required placeholder="e.g. Annual Tour 2026">
+        </label>
+        <label>Destination
+          <input id="t-dest" type="text" maxlength="80" required placeholder="e.g. Hunza Valley">
+        </label>
+        <label>Start date
+          <input id="t-start" type="date">
+        </label>
+        <label>End date
+          <input id="t-end" type="date">
+        </label>
+        <label>Cost per member
+          <input id="t-cost" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00">
+        </label>
+        <label>Notes (optional)
+          <input id="t-notes" type="text" maxlength="200" placeholder="e.g. 5-day trip">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Add Tour</button>
+    </form>
+
+    <h2>All Tours</h2>
+    <div class="filters">
+      <label>Select tour
+        <select id="t-select"></select>
+      </label>
+    </div>
+    <div id="t-detail"></div>
+  </section>
+
   <!-- LOANS -->
   <section id="tab-loans" class="tab-panel">
     <h2>Record New Loan</h2>
@@ -264,7 +303,7 @@
 
     <h2>Danger Zone</h2>
     <div class="form-card danger">
-      <p class="hint">This permanently deletes all members, contributions, loans, repayments, profit records and meetings stored in this browser.</p>
+      <p class="hint">This permanently deletes all members, contributions, loans, repayments, profit records, meetings and tours stored in this browser.</p>
       <button id="s-reset" type="button" class="btn danger">Reset all data</button>
     </div>
   </section>

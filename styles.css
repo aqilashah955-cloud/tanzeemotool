@@ -206,6 +206,11 @@ input:focus, select:focus {
 .members-table tbody tr:last-child td { border-bottom: none; }
 .dim { color: var(--muted); }
 
+/* Tour payment status */
+.status-paid { color: var(--good); font-weight: 700; }
+.status-partial { color: var(--warn); font-weight: 700; }
+.status-unpaid { color: var(--muted); font-weight: 600; }
+
 /* Meeting attendee checklist */
 .checklist {
   max-height: 220px;
