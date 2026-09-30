@@ -15,8 +15,10 @@
 
 <nav class="tabs" aria-label="Main sections">
   <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="members">Members</button>
   <button class="tab" data-tab="contributions">Contributions</button>
   <button class="tab" data-tab="monthly">Monthly</button>
+  <button class="tab" data-tab="meetings">Meetings</button>
   <button class="tab" data-tab="loans">Loans</button>
   <button class="tab" data-tab="profit">Profit</button>
   <button class="tab" data-tab="settings">Settings</button>
@@ -40,8 +42,34 @@
         <div class="stat-value good" id="d-total-profit">–</div>
       </div>
     </div>
+    <h2>Latest Meeting</h2>
+    <div id="d-latest-meeting" class="form-card"></div>
     <h2>Members</h2>
     <div id="d-members" class="cards-grid"></div>
+  </section>
+
+  <!-- MEMBERS -->
+  <section id="tab-members" class="tab-panel">
+    <h2>Add Member</h2>
+    <form id="mm-form" class="form-card">
+      <div class="form-grid">
+        <label>Name
+          <input id="mm-name" type="text" maxlength="40" required placeholder="Member name">
+        </label>
+        <label>Phone (optional)
+          <input id="mm-phone" type="tel" maxlength="20" placeholder="e.g. 0300 1234567">
+        </label>
+      </div>
+      <button type="submit" class="btn primary">Add Member</button>
+    </form>
+
+    <h2>All Members <small id="mm-count"></small></h2>
+    <div class="filters">
+      <label>Search
+        <input id="mm-search" type="search" placeholder="Search by name…">
+      </label>
+    </div>
+    <div id="mm-list" class="list"></div>
   </section>
 
   <!-- CONTRIBUTIONS -->
@@ -96,6 +124,43 @@
 
     <h2>Month-by-Month Records</h2>
     <div id="m-history" class="list"></div>
+  </section>
+
+  <!-- MEETINGS -->
+  <section id="tab-meetings" class="tab-panel">
+    <h2 id="mt-form-title">Add Meeting</h2>
+    <form id="mt-form" class="form-card">
+      <input id="mt-id" type="hidden">
+      <div class="form-grid">
+        <label>Meeting date
+          <input id="mt-date" type="date" required>
+        </label>
+        <label>Hosted at (member's home)
+          <select id="mt-host"></select>
+        </label>
+      </div>
+      <p id="mt-suggest" class="hint"></p>
+      <label>Attendees
+        <input id="mt-att-search" type="search" placeholder="Search members…">
+      </label>
+      <div id="mt-attendees" class="checklist"></div>
+      <label style="margin-top:0.75rem">Agenda
+        <textarea id="mt-agenda" rows="3" maxlength="2000" placeholder="Topics to discuss…"></textarea>
+      </label>
+      <div class="btn-row" style="margin:0.75rem 0">
+        <button id="mt-generate" type="button" class="btn">Generate summary</button>
+      </div>
+      <label>Final summary
+        <textarea id="mt-summary" rows="8" maxlength="10000" placeholder="Write the final summary of the meeting…"></textarea>
+      </label>
+      <div class="btn-row" style="margin-top:0.75rem">
+        <button id="mt-save" type="submit" class="btn primary">Save Meeting</button>
+        <button id="mt-cancel" type="button" class="btn" hidden>Cancel edit</button>
+      </div>
+    </form>
+
+    <h2>Meeting History</h2>
+    <div id="mt-history" class="list"></div>
   </section>
 
   <!-- LOANS -->
@@ -155,7 +220,10 @@
     <form id="p-share-form" class="form-card">
       <div id="p-shares" class="form-grid"></div>
       <p id="p-share-msg" class="hint"></p>
-      <button type="submit" class="btn primary">Save Allocation</button>
+      <div class="btn-row">
+        <button type="submit" class="btn primary">Save Allocation</button>
+        <button id="p-split-equal" type="button" class="btn">Split equally</button>
+      </div>
     </form>
 
     <h2>Member Profit Shares</h2>
@@ -196,7 +264,7 @@
 
     <h2>Danger Zone</h2>
     <div class="form-card danger">
-      <p class="hint">This permanently deletes all members, contributions, loans, repayments and profit records stored in this browser.</p>
+      <p class="hint">This permanently deletes all members, contributions, loans, repayments, profit records and meetings stored in this browser.</p>
       <button id="s-reset" type="button" class="btn danger">Reset all data</button>
     </div>
   </section>

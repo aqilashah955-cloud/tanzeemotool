@@ -51,6 +51,7 @@ function defaultData() {
     repayments: [],      // {id, loanId, amount, date, note}
     profits: [],         // {id, amount, date, note}
     profitShares: shares,// memberId -> percent
+    meetings: [],        // {id, date, hostMemberId, attendeeIds: [], agenda, summary}
     settings: { currency: 'Rs' }
   };
 }
@@ -72,10 +73,20 @@ function normalize() {
   data.repayments = data.repayments || [];
   data.profits = data.profits || [];
   data.profitShares = data.profitShares || {};
+  data.meetings = data.meetings || [];
   data.settings = data.settings || { currency: 'Rs' };
-  // ensure every member has a profit share entry
+  // ensure every member has a profit share entry and a phone field
   data.members.forEach(function (m) {
     if (typeof data.profitShares[m.id] !== 'number') data.profitShares[m.id] = 0;
+    if (m.phone == null) m.phone = '';
+  });
+  // normalize meeting records (forward-compatible with older backups)
+  data.meetings.forEach(function (mt) {
+    mt.date = mt.date || '';
+    mt.hostMemberId = mt.hostMemberId || '';
+    mt.attendeeIds = mt.attendeeIds || [];
+    mt.agenda = mt.agenda || '';
+    mt.summary = mt.summary || '';
   });
 }
 function save() {
@@ -142,10 +153,27 @@ function initTabs() {
 }
 
 /* ---------- dashboard ---------- */
+function latestMeeting() {
+  if (!data.meetings.length) return null;
+  return data.meetings.slice().sort(function (a, b) { return b.date.localeCompare(a.date); })[0];
+}
+function renderLatestMeeting() {
+  var box = $('d-latest-meeting');
+  var mt = latestMeeting();
+  if (!mt) { box.innerHTML = '<p class="empty">No meetings recorded yet.</p>'; return; }
+  var host = mt.hostMemberId ? esc(memberName(mt.hostMemberId)) + '&#8217;s home' : '&#8212;';
+  var s = mt.summary || '';
+  var trunc = s.length > 220 ? s.slice(0, 220) + '…' : s;
+  box.innerHTML = '<h3>' + fmtDate(mt.date) + ' — Hosted at ' + host + '</h3>' +
+    (trunc ? '<div class="summary-text">' + esc(trunc) + '</div>'
+           : '<p class="empty">No summary written yet.</p>') +
+    '<p class="hint" style="margin-bottom:0">View the full summary in the Meetings tab.</p>';
+}
 function renderDashboard() {
   $('d-total-savings').textContent = fmt(totalContributions());
   $('d-total-loans').textContent = fmt(totalOutstanding());
   $('d-total-profit').textContent = fmt(totalProfit());
+  renderLatestMeeting();
   $('d-members').innerHTML = data.members.map(function (m) {
     return '<div class="member-card"><h3>' + esc(m.name) + '</h3><dl>' +
       '<div class="row"><dt>Total contributed</dt><dd>' + fmt(memberContributed(m.id)) + '</dd></div>' +
@@ -153,6 +181,73 @@ function renderDashboard() {
       '<div class="row"><dt>Profit share</dt><dd>' + fmt(memberProfitShare(m.id)) + '</dd></div>' +
       '</dl></div>';
   }).join('') || '<p class="empty">No members yet.</p>';
+}
+
+/* ---------- members ---------- */
+var mmSearch = '';
+
+function renderMembers() {
+  var ym = currentMonth();
+  var q = mmSearch.trim().toLowerCase();
+  var list = data.members.filter(function (m) { return !q || m.name.toLowerCase().indexOf(q) !== -1; });
+  $('mm-count').textContent = '— ' + data.members.length + ' member' + (data.members.length === 1 ? '' : 's');
+  $('mm-list').innerHTML = list.length ?
+    '<div class="table-wrap"><table class="members-table"><thead><tr>' +
+    '<th>Name</th><th>Phone</th><th>Total contributed</th><th>This month (saved / target)</th>' +
+    '<th>Loan balance</th><th>Profit share</th><th></th>' +
+    '</tr></thead><tbody>' + list.map(function (m) {
+      var saved = memberMonthSaved(m.id, ym);
+      var target = Number(data.monthlyTargets[m.id]) || 0;
+      return '<tr><td><strong>' + esc(m.name) + '</strong></td>' +
+        '<td>' + (m.phone ? esc(m.phone) : '<span class="dim">–</span>') + '</td>' +
+        '<td>' + fmt(memberContributed(m.id)) + '</td>' +
+        '<td>' + fmt(saved) + ' / ' + fmt(target) + '</td>' +
+        '<td>' + fmt(memberLoanBalance(m.id)) + '</td>' +
+        '<td>' + fmt(memberProfitShare(m.id)) + '</td>' +
+        '<td><button class="btn small" data-del="member" data-id="' + m.id + '">Delete</button></td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<p class="empty">No members found.</p>';
+}
+
+function deleteMember(id) {
+  var m = null;
+  data.members.forEach(function (x) { if (x.id === id) m = x; });
+  var name = m ? m.name : 'this member';
+  if (!confirm('Delete member "' + name + '"? This will also remove ALL of their contributions, loans, repayments, targets and profit share.')) return;
+  if (!confirm('Are you really sure? "' + name + '" and all their records will be permanently deleted.')) return;
+  // cascade: contributions
+  data.contributions = data.contributions.filter(function (c) { return c.memberId !== id; });
+  // cascade: loans + their repayments
+  var loanIds = {};
+  data.loans.forEach(function (l) { if (l.memberId === id) loanIds[l.id] = true; });
+  data.loans = data.loans.filter(function (l) { return l.memberId !== id; });
+  data.repayments = data.repayments.filter(function (r) { return !loanIds[r.loanId]; });
+  // cascade: targets, profit shares
+  delete data.monthlyTargets[id];
+  delete data.profitShares[id];
+  // remove from meeting attendee lists; clear host if it was theirs
+  data.meetings.forEach(function (mt) {
+    mt.attendeeIds = mt.attendeeIds.filter(function (a) { return a !== id; });
+    if (mt.hostMemberId === id) mt.hostMemberId = '';
+  });
+  // remove member record
+  data.members = data.members.filter(function (x) { return x.id !== id; });
+  save(); renderAll();
+}
+
+function initMembers() {
+  $('mm-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = $('mm-name').value.trim();
+    if (!name) { alert('Please enter a member name.'); return; }
+    var m = { id: uid(), name: name, phone: $('mm-phone').value.trim() };
+    data.members.push(m);
+    data.profitShares[m.id] = 0; // normalize() also guarantees this
+    save();
+    $('mm-name').value = ''; $('mm-phone').value = '';
+    renderAll();
+  });
+  $('mm-search').addEventListener('input', function () { mmSearch = this.value; renderMembers(); });
 }
 
 /* ---------- contributions ---------- */
@@ -264,6 +359,200 @@ function initMonthly() {
     save(); renderAll();
   });
   $('m-month').addEventListener('change', renderMonthly);
+}
+
+/* ---------- meetings ---------- */
+var editingMeetingId = null;
+var mtFormTouched = false;
+var mtAttSearch = '';
+
+function suggestedHost() {
+  // member who has hosted least recently (never-hosted members first)
+  var lastHosted = {}; // memberId -> latest host date
+  data.meetings.forEach(function (mt) {
+    if (mt.hostMemberId && (!lastHosted[mt.hostMemberId] || mt.date > lastHosted[mt.hostMemberId])) {
+      lastHosted[mt.hostMemberId] = mt.date;
+    }
+  });
+  var sorted = data.members.slice().sort(function (a, b) {
+    var la = lastHosted[a.id], lb = lastHosted[b.id];
+    if (!la && lb) return -1;
+    if (la && !lb) return 1;
+    if (!la && !lb) return 0;
+    return la.localeCompare(lb); // oldest hosting date first
+  });
+  return sorted[0] || null;
+}
+
+function checkedAttendees() {
+  var ids = [];
+  document.querySelectorAll('#mt-attendees input[type=checkbox]:checked').forEach(function (cb) { ids.push(cb.value); });
+  return ids;
+}
+
+function renderAttendeeChecklist(checkedIds) {
+  var q = mtAttSearch.trim().toLowerCase();
+  var list = data.members.filter(function (m) { return !q || m.name.toLowerCase().indexOf(q) !== -1; });
+  $('mt-attendees').innerHTML = list.map(function (m) {
+    var c = checkedIds.indexOf(m.id) !== -1 ? ' checked' : '';
+    return '<label><input type="checkbox" value="' + m.id + '"' + c + '>' + esc(m.name) + '</label>';
+  }).join('') || '<p class="empty">No members match.</p>';
+}
+
+function fillHostSelect(selectedId) {
+  $('mt-host').innerHTML = '<option value="">—</option>' +
+    data.members.map(function (m) {
+      return '<option value="' + m.id + '"' + (m.id === selectedId ? ' selected' : '') + '>' + esc(m.name) + '&#8217;s home</option>';
+    }).join('');
+}
+
+function renderSuggestHint() {
+  var s = suggestedHost();
+  if (!s) { $('mt-suggest').textContent = ''; return; }
+  var last = null;
+  data.meetings.forEach(function (mt) {
+    if (mt.hostMemberId === s.id && (!last || mt.date > last)) last = mt.date;
+  });
+  $('mt-suggest').textContent = 'Suggested next host: ' + s.name +
+    (last ? ' (last hosted ' + fmtDate(last) + ')' : ' (has never hosted)');
+}
+
+function populateMeetingForm(mt) {
+  // mt = meeting record to edit, or null for a new meeting
+  editingMeetingId = mt ? mt.id : null;
+  mtFormTouched = false;
+  $('mt-id').value = mt ? mt.id : '';
+  $('mt-date').value = mt ? mt.date : todayStr();
+  fillHostSelect(mt ? mt.hostMemberId : '');
+  renderSuggestHint();
+  mtAttSearch = '';
+  $('mt-att-search').value = '';
+  renderAttendeeChecklist(mt ? mt.attendeeIds : data.members.map(function (m) { return m.id; }));
+  $('mt-agenda').value = mt ? mt.agenda : '';
+  $('mt-summary').value = mt ? mt.summary : '';
+  $('mt-form-title').textContent = mt ? 'Edit Meeting' : 'Add Meeting';
+  $('mt-save').textContent = mt ? 'Update Meeting' : 'Save Meeting';
+  $('mt-cancel').hidden = !mt;
+}
+
+function resetMeetingForm() { populateMeetingForm(null); }
+
+function renderMeetingForm() {
+  // don't clobber a form the user is working on
+  if (editingMeetingId || mtFormTouched) return;
+  populateMeetingForm(null);
+}
+
+function renderMeetingHistory() {
+  var list = data.meetings.slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+  $('mt-history').innerHTML = list.map(function (mt) {
+    var host = mt.hostMemberId ? esc(memberName(mt.hostMemberId)) + '&#8217;s home' : '&#8212;';
+    return '<div class="list-item"><div class="top">' +
+      '<div><strong>' + fmtDate(mt.date) + '</strong>' +
+      '<div class="meta">Hosted at ' + host + ' · ' + mt.attendeeIds.length + ' attendee' + (mt.attendeeIds.length === 1 ? '' : 's') + '</div></div>' +
+      '</div>' +
+      (mt.agenda ? '<div class="note"><strong>Agenda:</strong> ' + esc(mt.agenda) + '</div>' : '') +
+      (mt.summary ? '<div class="summary-text">' + esc(mt.summary) + '</div>'
+                  : '<p class="hint">No summary written.</p>') +
+      '<div class="actions">' +
+      '<button class="btn small" data-edit-meeting="' + mt.id + '">Edit</button>' +
+      '<button class="btn small" data-del="meeting" data-id="' + mt.id + '">Delete</button>' +
+      '</div></div>';
+  }).join('') || '<p class="empty">No meetings recorded yet.</p>';
+}
+
+function renderMeetings() {
+  renderMeetingForm();
+  renderMeetingHistory();
+}
+
+function generateMeetingSummary(dateStr) {
+  var ym = (dateStr || todayStr()).slice(0, 7);
+  var att = checkedAttendees();
+  if (!att.length) att = data.members.map(function (m) { return m.id; });
+  var lines = [];
+  lines.push('Meeting summary — ' + monthLabel(ym));
+  lines.push('Date: ' + fmtDate(dateStr || todayStr()));
+  var hostId = $('mt-host').value;
+  lines.push('Hosted at: ' + (hostId ? memberName(hostId) + '’s home' : '—'));
+  lines.push('Attendees (' + att.length + '): ' + att.map(function (id) { return memberName(id); }).join(', '));
+  lines.push('');
+  var monthTotal = data.contributions
+    .filter(function (c) { return c.date.slice(0, 7) === ym; })
+    .reduce(function (s, c) { return s + Number(c.amount); }, 0);
+  lines.push('Total collected this month: ' + fmt(monthTotal));
+  lines.push('');
+  lines.push('Per-member savings (saved vs target):');
+  data.members.forEach(function (m) {
+    var saved = memberMonthSaved(m.id, ym);
+    var target = Number(data.monthlyTargets[m.id]) || 0;
+    var pct = target > 0 ? Math.round(saved / target * 100) : (saved > 0 ? 100 : 0);
+    lines.push('- ' + m.name + ': ' + fmt(saved) + ' / ' + fmt(target) + ' (' + pct + '%)');
+  });
+  lines.push('');
+  var loansM = data.loans.filter(function (l) { return l.date.slice(0, 7) === ym; });
+  var loansTotal = loansM.reduce(function (s, l) { return s + Number(l.amount); }, 0);
+  lines.push('Loans issued this month: ' + fmt(loansTotal) + ' (' + loansM.length + ' loan' + (loansM.length === 1 ? '' : 's') + ')');
+  var repTotal = data.repayments
+    .filter(function (r) { return r.date.slice(0, 7) === ym; })
+    .reduce(function (s, r) { return s + Number(r.amount); }, 0);
+  lines.push('Repayments received this month: ' + fmt(repTotal));
+  var profTotal = data.profits
+    .filter(function (p) { return p.date.slice(0, 7) === ym; })
+    .reduce(function (s, p) { return s + Number(p.amount); }, 0);
+  lines.push('Profit added this month: ' + fmt(profTotal));
+  lines.push('Total savings pool to date: ' + fmt(totalContributions()));
+  return lines.join('\n');
+}
+
+function initMeetings() {
+  $('mt-form').addEventListener('input', function () { mtFormTouched = true; });
+  $('mt-date').addEventListener('change', function () { mtFormTouched = true; });
+  $('mt-host').addEventListener('change', function () { mtFormTouched = true; });
+  $('mt-att-search').addEventListener('input', function () {
+    mtAttSearch = this.value;
+    renderAttendeeChecklist(checkedAttendees());
+  });
+  $('mt-generate').addEventListener('click', function () {
+    var date = $('mt-date').value || todayStr();
+    $('mt-summary').value = generateMeetingSummary(date);
+    mtFormTouched = true;
+  });
+  $('mt-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!$('mt-date').value) { alert('Please choose a meeting date.'); return; }
+    var rec = {
+      id: editingMeetingId || uid(),
+      date: $('mt-date').value,
+      hostMemberId: $('mt-host').value || '',
+      attendeeIds: checkedAttendees(),
+      agenda: $('mt-agenda').value.trim(),
+      summary: $('mt-summary').value.trim()
+    };
+    if (editingMeetingId) {
+      data.meetings = data.meetings.map(function (mt) { return mt.id === editingMeetingId ? rec : mt; });
+    } else {
+      data.meetings.push(rec);
+    }
+    save();
+    resetMeetingForm();
+    renderAll();
+  });
+  $('mt-cancel').addEventListener('click', function () {
+    resetMeetingForm();
+    renderMeetings();
+  });
+  // edit buttons (event delegation)
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-edit-meeting]') : null;
+    if (!btn) return;
+    var id = btn.getAttribute('data-edit-meeting');
+    var mt = null;
+    data.meetings.forEach(function (x) { if (x.id === id) mt = x; });
+    if (!mt) return;
+    populateMeetingForm(mt);
+    $('mt-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 /* ---------- loans ---------- */
@@ -403,6 +692,19 @@ function initProfit() {
   document.addEventListener('input', function (e) {
     if (e.target && e.target.hasAttribute('data-share-for')) updateShareMsg();
   });
+  $('p-split-equal').addEventListener('click', function () {
+    var inputs = document.querySelectorAll('[data-share-for]');
+    var n = inputs.length;
+    if (!n) { alert('Add members first.'); return; }
+    var each = Math.floor(10000 / n) / 100; // 2-decimal share, rounded down
+    var assigned = 0;
+    inputs.forEach(function (inp, i) {
+      var v = (i === n - 1) ? Math.round((100 - assigned) * 100) / 100 : each;
+      inp.value = v;
+      assigned += each;
+    });
+    updateShareMsg();
+  });
 }
 
 /* ---------- settings ---------- */
@@ -474,7 +776,8 @@ function initDeletes() {
     if (!btn) return;
     var type = btn.getAttribute('data-del');
     var id = btn.getAttribute('data-id');
-    var label = { contribution: 'this contribution', loan: 'this loan and its repayments', repayment: 'this repayment', profit: 'this profit entry' }[type] || 'this record';
+    if (type === 'member') { deleteMember(id); return; }
+    var label = { contribution: 'this contribution', loan: 'this loan and its repayments', repayment: 'this repayment', profit: 'this profit entry', meeting: 'this meeting' }[type] || 'this record';
     if (!confirm('Delete ' + label + '?')) return;
     if (type === 'contribution') data.contributions = data.contributions.filter(function (c) { return c.id !== id; });
     else if (type === 'loan') {
@@ -483,6 +786,10 @@ function initDeletes() {
     }
     else if (type === 'repayment') data.repayments = data.repayments.filter(function (r) { return r.id !== id; });
     else if (type === 'profit') data.profits = data.profits.filter(function (p) { return p.id !== id; });
+    else if (type === 'meeting') {
+      if (editingMeetingId === id) resetMeetingForm();
+      data.meetings = data.meetings.filter(function (mt) { return mt.id !== id; });
+    }
     save(); renderAll();
   });
 }
@@ -490,8 +797,10 @@ function initDeletes() {
 /* ---------- boot ---------- */
 function renderAll() {
   renderDashboard();
+  renderMembers();
   renderContributions();
   renderMonthly();
+  renderMeetings();
   renderLoans();
   renderProfit();
   renderSettings();
@@ -499,8 +808,10 @@ function renderAll() {
 
 load();
 initTabs();
+initMembers();
 initContributions();
 initMonthly();
+initMeetings();
 initLoans();
 initProfit();
 initSettings();

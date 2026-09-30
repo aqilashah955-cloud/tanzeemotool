@@ -198,6 +198,57 @@ input:focus, select:focus {
 .history-month { font-weight: 700; margin-bottom: 0.25rem; }
 .history-detail { font-size: 0.85rem; color: var(--muted); }
 
+/* Members table (compact list for 50+ members) */
+.table-wrap { overflow-x: auto; }
+.members-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.members-table th, .members-table td { text-align: left; padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.members-table thead th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; background: var(--bg); }
+.members-table tbody tr:last-child td { border-bottom: none; }
+.dim { color: var(--muted); }
+
+/* Meeting attendee checklist */
+.checklist {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  display: grid;
+  gap: 0.2rem;
+  background: #fff;
+  margin-top: 0.3rem;
+}
+.checklist label { display: flex; gap: 0.5rem; align-items: center; font-weight: 400; cursor: pointer; }
+.checklist input[type="checkbox"] { width: auto; }
+
+/* Meeting summary text */
+.summary-text {
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.5rem;
+}
+#d-latest-meeting h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+
+textarea {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  margin-top: 0.3rem;
+}
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
 @media (max-width: 520px) {
   .stat-value { font-size: 1.25rem; }
   main { padding: 0.75rem 0.75rem 2.5rem; }
